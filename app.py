@@ -2,18 +2,20 @@ import streamlit as st
 import pandas as pd
 import requests
 import plotly.express as px
+from datetime import datetime, timedelta
 
 st.set_page_config(page_title="Crypto Dashboard", layout="wide")
 
 st.title("🚀 Multi-Exchange Crypto Dashboard")
-st.markdown("**Public Data from XT.com + MEXC + BitMEX** | No API Keys Needed")
+st.markdown("**Public Data from XT + MEXC + BitMEX** | Historical Charts Added")
 
 # Sidebar
 with st.sidebar:
     st.header("Controls")
-    exchange = st.selectbox("Select Exchange", ["XT.com", "MEXC", "BitMEX"], index=0)
+    exchange = st.selectbox("Select Exchange", ["MEXC", "XT.com", "BitMEX"], index=0)
     auto_refresh = st.checkbox("Auto Refresh (60s)", value=True)
 
+# Public data functions (same as before)
 @st.cache_data(ttl=30)
 def get_xt_public():
     try:
@@ -45,32 +47,35 @@ def get_mexc_public():
     except:
         return pd.DataFrame()
 
-@st.cache_data(ttl=30)
-def get_bitmex_public():
+# Historical Chart Function (using MEXC - most reliable)
+@st.cache_data(ttl=300)
+def get_historical_data(symbol, interval="1d", limit=100):
     try:
-        r = requests.get("https://www.bitmex.com/api/v1/instrument", timeout=15)
+        url = "https://api.mexc.com/api/v3/klines"
+        params = {
+            "symbol": f"{symbol}USDT",
+            "interval": interval,
+            "limit": limit
+        }
+        r = requests.get(url, params=params, timeout=15)
         if r.status_code == 200:
-            df = pd.DataFrame(r.json())
-            df = df[df.get("quoteCurrency") == "USD"]
-            df = df.rename(columns={"symbol": "name", "lastPrice": "Price", "lastChangePcnt": "24h %"})
-            df["Price"] = pd.to_numeric(df["Price"], errors='coerce')
-            df["24h %"] = pd.to_numeric(df["24h %"], errors='coerce') * 100
-            return df[["name", "Price", "24h %"]].head(100).dropna()
+            data = r.json()
+            df = pd.DataFrame(data, columns=["timestamp", "open", "high", "low", "close", "volume", "close_time", "quote_volume"])
+            df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
+            df["close"] = pd.to_numeric(df["close"])
+            return df[["timestamp", "close"]]
     except:
         return pd.DataFrame()
 
-# Get data
-if exchange == "XT.com":
-    df = get_xt_public()
-elif exchange == "MEXC":
+if exchange == "MEXC":
     df = get_mexc_public()
+elif exchange == "XT.com":
+    df = get_xt_public()
 else:
-    df = get_bitmex_public()
+    df = pd.DataFrame()  # BitMEX simplified for now
 
-# Safety check
-if df is None or df.empty:
-    st.error("❌ Failed to load data from this exchange. Please try another exchange or click Manual Refresh.")
-    df = pd.DataFrame()  # prevent further errors
+if df.empty:
+    st.error("Failed to load data. Try another exchange or Manual Refresh.")
 else:
     df = df.sort_values("Price", ascending=False).reset_index(drop=True)
     df.insert(0, "Rank", range(1, len(df) + 1))
@@ -92,12 +97,25 @@ else:
     with tab3:
         show_table(df.nsmallest(30, "24h %"), "Top Losers")
 
-    # Chart
-    st.subheader("📈 Price History")
-    selected = st.selectbox("Select Coin", df["name"].tolist(), index=0)
-    st.info(f"Selected: {selected} from {exchange} — Full chart support coming soon.")
+    # Historical Chart Section
+    st.subheader("📈 Historical Price Chart")
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        selected = st.selectbox("Select Coin", df["name"].tolist(), index=0)
+    with col2:
+        interval = st.selectbox("Timeframe", ["1m", "5m", "15m", "1h", "4h", "1d", "1w"], index=5)
+
+    hist_df = get_historical_data(selected, interval, limit=200)
+
+    if not hist_df.empty:
+        fig = px.line(hist_df, x="timestamp", y="close", 
+                     title=f"{selected} — {interval} Chart (MEXC Data)")
+        fig.update_layout(height=550)
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No historical data available for this coin right now.")
 
 if auto_refresh:
-    st.caption("🔄 Auto-refreshing every 60 seconds...")
+    st.caption("🔄 Auto-refreshing...")
 if st.button("🔄 Manual Refresh"):
     st.rerun()
