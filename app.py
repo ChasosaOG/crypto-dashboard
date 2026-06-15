@@ -8,18 +8,17 @@ import ccxt
 st.set_page_config(page_title="Your Perfect Crypto Dashboard", layout="wide")
 
 st.title("🚀 Your Perfect Crypto Dashboard")
-st.markdown("**CoinGecko Data + CCXT Real-Time Comparison** | XT + MEXC + BitMEX")
+st.markdown("**CoinGecko Structure + CCXT Real-Time + Charts**")
 
 # Sidebar Info
 with st.sidebar:
-    st.header("ℹ️ Supported Features")
-    st.write("**Exchanges:** XT.com, MEXC, BitMEX + 100+ more via CCXT")
+    st.header("ℹ️ Supported")
+    st.write("**Exchanges:** XT.com, MEXC, BitMEX + 100+ more")
     st.write("**Currencies:** USD, EUR, GBP, JPY, INR, etc.")
-    st.write("**Cryptos:** 150+ major coins from CoinGecko")
-    
+    st.write("**Cryptos:** 150+ major coins")
     auto_refresh = st.checkbox("Auto Refresh (60s)", value=True)
 
-# === CoinGecko Main Data ===
+# CoinGecko Main Data
 @st.cache_data(ttl=60)
 def get_coingecko_data():
     try:
@@ -59,20 +58,19 @@ if not df.empty:
     with tab3:
         show_table(df.nsmallest(30, "price_change_percentage_24h"), "Top Losers")
 
-    # === New Tab: Supported Lists ===
     with tab4:
-        st.subheader("Supported Exchanges (via CCXT)")
-        ex_list = ["xt", "mexc", "bitmex", "binance", "bybit", "gate", "kucoin", "bitget"] + list(ccxt.exchanges)[:30]
-        st.write(", ".join([e.upper() for e in ex_list]))
-
+        st.subheader("Supported Exchanges (CCXT)")
+        st.write("XT.com, MEXC, BitMEX, Binance, Bybit, Gate.io, KuCoin, Bitget + 100+ more")
         st.subheader("Supported Currencies")
-        st.write("USD, EUR, GBP, JPY, INR, BRL, AUD, CAD, CHF, CNY, TRY, RUB, KRW, HKD + more")
-
+        st.write("USD, EUR, GBP, JPY, INR, BRL, AUD, CAD, CHF, CNY, TRY, RUB, KRW, HKD...")
         st.subheader("Popular Cryptos")
         st.write(df["name"].head(50).tolist())
 
-    # === CCXT Price Comparison + Candlestick ===
-    st.subheader(f"💰 Live Price Comparison — {focus_coin := st.text_input('Focus Coin', 'BTC', key='focus').upper()}")
+    # Focus Coin Input
+    focus_coin = st.text_input("Focus Coin for Comparison & Chart", "BTC").upper()
+
+    # CCXT Price Comparison
+    st.subheader(f"💰 Live Price Comparison — {focus_coin}")
     @st.cache_data(ttl=20)
     def get_comparison(coin):
         exs = {"XT.com": ccxt.xt(), "MEXC": ccxt.mexc(), "BitMEX": ccxt.bitmex()}
@@ -86,13 +84,14 @@ if not df.empty:
         return pd.DataFrame(data)
 
     comp = get_comparison(focus_coin)
-    st.dataframe(comp.style.format({"Price": "${:,.6f}", "24h %": "{:+.2f}%"}).map(
-        lambda x: "color:green;font-weight:bold" if isinstance(x, float) and x > 0 else "color:red;font-weight:bold", subset=["24h %"]),
-        use_container_width=True)
+    st.dataframe(comp.style.format({"Price": "${:,.6f}", "24h %": "{:+.2f}%"})
+                 .map(lambda x: "color:green;font-weight:bold" if isinstance(x, float) and x > 0 else "color:red;font-weight:bold", subset=["24h %"]),
+                 use_container_width=True)
 
-    # Candlestick
-    st.subheader(f"📊 {focus_coin}/USDT Candlestick")
+    # Candlestick Chart
+    st.subheader(f"📊 {focus_coin}/USDT Candlestick Chart")
     tf = st.selectbox("Timeframe", ["1m","5m","15m","1h","4h","1d"], index=4)
+
     @st.cache_data(ttl=60)
     def get_candles(coin, timeframe):
         try:
@@ -103,11 +102,14 @@ if not df.empty:
             return dfc
         except:
             return pd.DataFrame()
+
     candles = get_candles(focus_coin, tf)
     if not candles.empty:
         fig = go.Figure(data=[go.Candlestick(x=candles["ts"], open=candles["o"], high=candles["h"], low=candles["l"], close=candles["c"])])
         fig.update_layout(height=600, title=f"{focus_coin}/USDT {tf}")
         st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No candlestick data available right now.")
 
 if auto_refresh:
     st.caption("🔄 Auto-refreshing...")
