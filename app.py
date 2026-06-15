@@ -2,29 +2,23 @@ import streamlit as st
 import pandas as pd
 import requests
 import plotly.express as px
-import time
 
 st.set_page_config(page_title="Your Crypto Dashboard", layout="wide")
 
 st.title("🚀 Your Personal Crypto Info Dashboard")
 st.markdown("**Real-time Prices • Supplies • Charts • Trader Tools** | CoinGecko Data")
 
-# Sidebar - All Controls & Advanced Filters
+# Sidebar
 st.sidebar.header("🔧 Filters & Controls")
-
 vs_currency = st.sidebar.selectbox("Currency", ["usd", "eur", "gbp", "jpy", "inr", "brl", "aud", "cad", "chf", "cny", "try", "rub"], index=0)
 per_page = st.sidebar.slider("Max coins to load", 10, 250, 200, step=10)
 
-# Auto-refresh toggle
 auto_refresh = st.sidebar.checkbox("Auto Refresh Every 60s", value=True)
 
-# Advanced Filters
 st.sidebar.subheader("Advanced Filters")
 search = st.sidebar.text_input("Search Name/Symbol", "")
-
 price_min = st.sidebar.number_input("Min Price", value=0.0, format="%.6f")
 price_max = st.sidebar.number_input("Max Price", value=100000.0, format="%.2f")
-
 vol_min = st.sidebar.number_input("Min 24h Volume ($M)", value=0, step=1)
 mcap_min = st.sidebar.number_input("Min Market Cap ($M)", value=0, step=10)
 
@@ -46,7 +40,7 @@ def get_crypto_data(currency, per_page):
         r = requests.get(url, params=params, timeout=15)
         return pd.DataFrame(r.json()) if r.status_code == 200 else pd.DataFrame()
     except:
-        st.error("Rate limit — waiting...")
+        st.error("Rate limit — click Refresh")
         return pd.DataFrame()
 
 df = get_crypto_data(vs_currency, per_page)
@@ -54,16 +48,13 @@ df = get_crypto_data(vs_currency, per_page)
 if not df.empty:
     # Apply filters
     filtered = df.copy()
-    
     if search:
         filtered = filtered[filtered["name"].str.contains(search, case=False) | 
                            filtered["symbol"].str.contains(search, case=False)]
-    
     if price_min > 0:
         filtered = filtered[filtered["current_price"] >= price_min]
     if price_max < 100000:
         filtered = filtered[filtered["current_price"] <= price_max]
-    
     if vol_min > 0:
         filtered = filtered[filtered["total_volume"] >= vol_min * 1_000_000]
     if mcap_min > 0:
@@ -71,12 +62,17 @@ if not df.empty:
 
     # Sort
     ascending = sort_order == "Ascending"
-    filtered = filtered.sort_values(by=sort_by, ascending=ascending)
+    filtered = filtered.sort_values(by=sort_by, ascending=ascending).reset_index(drop=True)
+
+    # Add Rank column (starts from 1)
+    filtered = filtered.reset_index()
+    filtered = filtered.rename(columns={"index": "Rank"})
+    filtered["Rank"] = filtered["Rank"] + 1
 
     tab1, tab2, tab3 = st.tabs(["📋 All Coins", "🔥 Top Gainers", "📉 Top Losers"])
 
     def make_display_df(data):
-        disp = data[["id", "name", "symbol", "current_price", "price_change_percentage_24h",
+        disp = data[["Rank", "name", "symbol", "current_price", "price_change_percentage_24h",
                      "market_cap", "total_volume", "circulating_supply", "total_supply", "max_supply", "ath"]].copy()
         disp = disp.rename(columns={
             "current_price": "Price", "price_change_percentage_24h": "24h %",
@@ -96,21 +92,25 @@ if not df.empty:
             }).map(lambda x: "color:green;font-weight:bold" if isinstance(x, float) and x > 0 else "color:red;font-weight:bold", subset=["24h %"]),
             width="stretch", height=550
         )
+        return disp
 
+    # Show tables
     with tab1:
-        show_table(filtered, "All Coins")
-
+        disp = show_table(filtered, "All Coins")
     with tab2:
-        gainers = filtered.nlargest(30, "price_change_percentage_24h")
+        gainers = filtered.nlargest(30, "24h %")  # using renamed column logic
         show_table(gainers, "Top Gainers")
-
     with tab3:
-        losers = filtered.nsmallest(30, "price_change_percentage_24h")
+        losers = filtered.nsmallest(30, "24h %")
         show_table(losers, "Top Losers")
 
-    # Charts
-    st.subheader("📈 Price History")
-    selected_name = st.selectbox("Select coin", df["name"].tolist())
+    # Dynamic Chart Section (updates on selection)
+    st.subheader("📈 Price History Chart")
+    # Default to top coin (Rank #1) instead of BTC
+    default_coin = filtered.iloc[0]["name"] if not filtered.empty else "Bitcoin"
+    selected_name = st.selectbox("Select coin for chart (click any coin above to inspire choice)", 
+                                filtered["name"].tolist(), index=0)
+    
     coin_row = df[df["name"] == selected_name].iloc[0]
     coin_id = coin_row["id"]
 
@@ -134,14 +134,10 @@ if not df.empty:
         fig.update_layout(height=500)
         st.plotly_chart(fig, use_container_width=True)
 
-# Auto Refresh Logic
+# Refresh
 if auto_refresh:
     st.caption("🔄 Auto-refreshing every 60 seconds...")
-    time.sleep(1)  # small delay
-    if st.button("🔄 Manual Refresh"):
-        st.rerun()
-else:
-    if st.button("🔄 Manual Refresh"):
-        st.rerun()
+if st.button("🔄 Manual Refresh"):
+    st.rerun()
 
-st.caption("Advanced filters + auto updates enabled")
+st.caption("Rank starts from #1 | Chart updates dynamically")
