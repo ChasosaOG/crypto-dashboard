@@ -63,8 +63,6 @@ if not df.empty:
     # Sort
     ascending = sort_order == "Ascending"
     filtered = filtered.sort_values(by=sort_by, ascending=ascending).reset_index(drop=True)
-
-    # Add Rank column (starts from 1)
     filtered = filtered.reset_index()
     filtered = filtered.rename(columns={"index": "Rank"})
     filtered["Rank"] = filtered["Rank"] + 1
@@ -75,10 +73,14 @@ if not df.empty:
         disp = data[["Rank", "name", "symbol", "current_price", "price_change_percentage_24h",
                      "market_cap", "total_volume", "circulating_supply", "total_supply", "max_supply", "ath"]].copy()
         disp = disp.rename(columns={
-            "current_price": "Price", "price_change_percentage_24h": "24h %",
-            "market_cap": "Market Cap", "total_volume": "24h Volume",
-            "circulating_supply": "Circulating", "total_supply": "Total",
-            "max_supply": "Max Supply", "ath": "ATH"
+            "current_price": "Price", 
+            "price_change_percentage_24h": "24h %",
+            "market_cap": "Market Cap", 
+            "total_volume": "24h Volume",
+            "circulating_supply": "Circulating", 
+            "total_supply": "Total",
+            "max_supply": "Max Supply", 
+            "ath": "ATH"
         })
         return disp
 
@@ -87,29 +89,32 @@ if not df.empty:
         disp = make_display_df(data)
         st.dataframe(
             disp.style.format({
-                "Price": f"${{:,.6f}}", "24h %": "{:+.2f}%",
-                "Market Cap": "${:,.0f}", "24h Volume": "${:,.0f}"
+                "Price": f"${{:,.6f}}", 
+                "24h %": "{:+.2f}%",
+                "Market Cap": "${:,.0f}", 
+                "24h Volume": "${:,.0f}"
             }).map(lambda x: "color:green;font-weight:bold" if isinstance(x, float) and x > 0 else "color:red;font-weight:bold", subset=["24h %"]),
-            width="stretch", height=550
+            width="stretch", 
+            height=550
         )
-        return disp
 
-    # Show tables
     with tab1:
-        disp = show_table(filtered, "All Coins")
+        show_table(filtered, "All Coins")
+
     with tab2:
-        gainers = filtered.nlargest(30, "24h %")  # using renamed column logic
+        gainers = filtered.nlargest(30, "price_change_percentage_24h")
         show_table(gainers, "Top Gainers")
+
     with tab3:
-        losers = filtered.nsmallest(30, "24h %")
+        losers = filtered.nsmallest(30, "price_change_percentage_24h")
         show_table(losers, "Top Losers")
 
-    # Dynamic Chart Section (updates on selection)
+    # Dynamic Chart - updates with your selection
     st.subheader("📈 Price History Chart")
-    # Default to top coin (Rank #1) instead of BTC
-    default_coin = filtered.iloc[0]["name"] if not filtered.empty else "Bitcoin"
-    selected_name = st.selectbox("Select coin for chart (click any coin above to inspire choice)", 
-                                filtered["name"].tolist(), index=0)
+    default_index = 0  # Rank #1
+    selected_name = st.selectbox("Select coin for chart", 
+                                filtered["name"].tolist(), 
+                                index=default_index)
     
     coin_row = df[df["name"] == selected_name].iloc[0]
     coin_id = coin_row["id"]
@@ -140,4 +145,4 @@ if auto_refresh:
 if st.button("🔄 Manual Refresh"):
     st.rerun()
 
-st.caption("Rank starts from #1 | Chart updates dynamically")
+st.caption("✅ Rank starts from #1 | Chart updates on coin selection")
