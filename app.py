@@ -5,24 +5,20 @@ import plotly.express as px
 
 st.set_page_config(page_title="Crypto Dashboard", layout="wide", initial_sidebar_state="expanded")
 
-# Currency symbols mapping
+# Reliable currencies + symbols
 currency_symbols = {
     "usd": "$", "eur": "€", "gbp": "£", "jpy": "¥", "inr": "₹",
     "brl": "R$", "aud": "A$", "cad": "C$", "chf": "CHF", "cny": "¥",
-    "try": "₺", "rub": "₽", "krw": "₩", "hkd": "HK$", "sgd": "S$",
-    "mxn": "MX$", "zar": "R", "sek": "kr", "nok": "kr", "dkk": "kr"
+    "try": "₺", "rub": "₽", "krw": "₩", "hkd": "HK$"
 }
 
 st.title("🚀 Crypto Market Dashboard")
-st.markdown("**Real-time Prices • Supplies • Charts • Trader Tools** | CoinGecko")
+st.markdown("**Real-time Prices • Supplies • Charts** | CoinGecko")
 
 # Sidebar
 with st.sidebar:
     st.header("🔧 Controls")
-    vs_currency = st.selectbox("Currency", 
-        ["usd", "eur", "gbp", "jpy", "inr", "brl", "aud", "cad", "chf", "cny", 
-         "try", "rub", "krw", "hkd", "sgd", "mxn", "zar", "sek", "nok", "dkk"], 
-        index=0)
+    vs_currency = st.selectbox("Select Currency", list(currency_symbols.keys()), index=0)
     symbol = currency_symbols.get(vs_currency, vs_currency.upper())
     
     per_page = st.slider("Coins to Load", 10, 250, 150, step=10)
@@ -36,7 +32,7 @@ with st.sidebar:
             price_min = st.number_input("Min Price", value=0.0, format="%.6f")
             vol_min = st.number_input("Min Volume ($M)", value=0, step=1)
         with col2:
-            price_max = st.number_input("Max Price", value=100000.0, format="%.2f")
+            price_max = st.number_input("Max Price", value=1000000.0, format="%.2f")
             mcap_min = st.number_input("Min Market Cap ($M)", value=0, step=10)
 
         sort_by = st.selectbox("Sort By", ["market_cap", "price_change_percentage_24h", "current_price", "total_volume"], index=0)
@@ -54,22 +50,34 @@ def get_crypto_data(currency, per_page):
         "price_change_percentage": "24h"
     }
     try:
-        r = requests.get(url, params=params, timeout=15)
-        return pd.DataFrame(r.json()) if r.status_code == 200 else pd.DataFrame()
-    except:
-        st.error("Rate limit — click refresh")
+        r = requests.get(url, params=params, timeout=20)
+        if r.status_code == 200:
+            return pd.DataFrame(r.json())
+        else:
+            st.error(f"API error for {currency.upper()}. Try another currency.")
+            return pd.DataFrame()
+    except Exception as e:
+        st.error(f"Connection issue. Please refresh.")
         return pd.DataFrame()
 
 df = get_crypto_data(vs_currency, per_page)
 
-if not df.empty:
+if df.empty:
+    st.warning("⚠️ No data received for this currency. Please try USD, EUR or GBP.")
+else:
+    # Filtering
     filtered = df.copy()
     if search:
-        filtered = filtered[filtered["name"].str.contains(search, case=False) | filtered["symbol"].str.contains(search, case=False)]
-    if price_min > 0: filtered = filtered[filtered["current_price"] >= price_min]
-    if price_max < 100000: filtered = filtered[filtered["current_price"] <= price_max]
-    if vol_min > 0: filtered = filtered[filtered["total_volume"] >= vol_min * 1_000_000]
-    if mcap_min > 0: filtered = filtered[filtered["market_cap"] >= mcap_min * 1_000_000]
+        filtered = filtered[filtered["name"].str.contains(search, case=False) | 
+                           filtered["symbol"].str.contains(search, case=False)]
+    if price_min > 0:
+        filtered = filtered[filtered["current_price"] >= price_min]
+    if price_max < 1000000:
+        filtered = filtered[filtered["current_price"] <= price_max]
+    if vol_min > 0:
+        filtered = filtered[filtered["total_volume"] >= vol_min * 1_000_000]
+    if mcap_min > 0:
+        filtered = filtered[filtered["market_cap"] >= mcap_min * 1_000_000]
 
     ascending = sort_order == "Ascending"
     filtered = filtered.sort_values(by=sort_by, ascending=ascending).reset_index(drop=True)
@@ -78,7 +86,7 @@ if not df.empty:
     tab1, tab2, tab3 = st.tabs(["📋 Market Overview", "🔥 Gainers", "📉 Losers"])
 
     def show_table(data, title):
-        st.subheader(title)
+        st.subheader(f"{title} ({len(data)} coins)")
         disp = data[["Rank", "name", "symbol", "current_price", "price_change_percentage_24h",
                      "market_cap", "total_volume", "circulating_supply", "max_supply"]].copy()
         disp = disp.rename(columns={
@@ -103,7 +111,7 @@ if not df.empty:
     with tab3:
         show_table(filtered.nsmallest(30, "price_change_percentage_24h"), "Top Losers")
 
-    # Chart
+    # Chart Section
     st.subheader("📈 Price History")
     col1, col2 = st.columns([3, 1])
     with col1:
