@@ -13,7 +13,7 @@ st.markdown("**CoinGecko Data + CCXT Comparison + Charts**")
 # Sidebar - Filters & Controls
 with st.sidebar:
     st.header("🔧 Filters & Controls")
-    vs_currency = st.selectbox("Select Currency", ["usd", "eur", "gbp", "jpy", "inr"], index=0)
+    vs_currency = st.selectbox("Select Currency", ["usd", "eur", "gbp"], index=0)
     auto_refresh = st.checkbox("Auto Refresh (60s)", value=True)
 
     st.subheader("Advanced Filters")
@@ -48,13 +48,12 @@ if not df.empty:
 
     ascending = sort_order == "Ascending"
     filtered = filtered.sort_values(by=sort_by, ascending=ascending).reset_index(drop=True)
-    filtered.insert(0, "Rank", range(1, len(filtered) + 1))
 
     tab1, tab2, tab3 = st.tabs(["📋 All Coins", "🔥 Gainers", "📉 Losers"])
 
     def show_table(data, title):
         st.subheader(title)
-        disp = data[["Rank", "name", "symbol", "current_price", "price_change_percentage_24h",
+        disp = data[["name", "symbol", "current_price", "price_change_percentage_24h",
                      "market_cap", "total_volume", "circulating_supply", "max_supply"]].copy()
         disp = disp.rename(columns={
             "current_price": "Price", "price_change_percentage_24h": "24h %",
@@ -76,7 +75,7 @@ if not df.empty:
     # Focus Coin
     focus_coin = st.text_input("Focus Coin for Comparison & Chart", "BTC").upper()
 
-    # CCXT Comparison
+    # CCXT Price Comparison
     st.subheader(f"💰 Price Comparison Across Exchanges — {focus_coin}")
     @st.cache_data(ttl=20)
     def get_comparison(coin):
@@ -115,6 +114,8 @@ if not df.empty:
         fig = go.Figure(data=[go.Candlestick(x=candles["ts"], open=candles["o"], high=candles["h"], low=candles["l"], close=candles["c"])])
         fig.update_layout(height=600, title=f"{focus_coin}/USDT {tf}")
         st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No candlestick data available right now.")
 
 if auto_refresh:
     st.caption("🔄 Auto-refreshing...")
