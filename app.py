@@ -63,9 +63,9 @@ if not df.empty:
     # Sort
     ascending = sort_order == "Ascending"
     filtered = filtered.sort_values(by=sort_by, ascending=ascending).reset_index(drop=True)
-    filtered = filtered.reset_index()
-    filtered = filtered.rename(columns={"index": "Rank"})
-    filtered["Rank"] = filtered["Rank"] + 1
+
+    # Add clean Rank column (starts from 1)
+    filtered.insert(0, "Rank", range(1, len(filtered) + 1))
 
     tab1, tab2, tab3 = st.tabs(["📋 All Coins", "🔥 Top Gainers", "📉 Top Losers"])
 
@@ -109,9 +109,9 @@ if not df.empty:
         losers = filtered.nsmallest(30, "price_change_percentage_24h")
         show_table(losers, "Top Losers")
 
-    # Dynamic Chart - updates with your selection
+    # Dynamic Chart with clear timeframe labels
     st.subheader("📈 Price History Chart")
-    default_index = 0  # Rank #1
+    default_index = 0
     selected_name = st.selectbox("Select coin for chart", 
                                 filtered["name"].tolist(), 
                                 index=default_index)
@@ -119,7 +119,16 @@ if not df.empty:
     coin_row = df[df["name"] == selected_name].iloc[0]
     coin_id = coin_row["id"]
 
-    timeframe = st.selectbox("Timeframe", ["1", "7", "30", "90", "365", "max"], index=2)
+    timeframe_options = {
+        "1": "1 (1 Day)", 
+        "7": "7 (7 Days)", 
+        "30": "30 (30 Days)", 
+        "90": "90 (90 Days)", 
+        "365": "365 (1 Year)", 
+        "max": "max (All Time)"
+    }
+    timeframe_label = st.selectbox("Timeframe", options=list(timeframe_options.values()), index=2)
+    timeframe = [k for k, v in timeframe_options.items() if v == timeframe_label][0]
 
     @st.cache_data(ttl=300)
     def get_history(coin_id, days, currency):
@@ -139,10 +148,10 @@ if not df.empty:
         fig.update_layout(height=500)
         st.plotly_chart(fig, use_container_width=True)
 
-# Refresh
+# Refresh section
 if auto_refresh:
     st.caption("🔄 Auto-refreshing every 60 seconds...")
 if st.button("🔄 Manual Refresh"):
     st.rerun()
 
-st.caption("✅ Rank starts from #1 | Chart updates on coin selection")
+st.caption("✅ Rank starts from #1 | Timeframes clarified")
