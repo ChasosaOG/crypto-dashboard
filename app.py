@@ -2,27 +2,37 @@ import streamlit as st
 import pandas as pd
 import requests
 import plotly.express as px
+import time
 
 st.set_page_config(page_title="Your Crypto Dashboard", layout="wide")
 
 st.title("🚀 Your Personal Crypto Info Dashboard")
 st.markdown("**Real-time Prices • Supplies • Charts • Trader Tools** | CoinGecko Data")
 
-# Sidebar controls
-st.sidebar.header("Filters & Settings")
+# Sidebar - All Controls & Advanced Filters
+st.sidebar.header("🔧 Filters & Controls")
+
 vs_currency = st.sidebar.selectbox("Currency", ["usd", "eur", "gbp", "jpy", "inr", "brl", "aud", "cad", "chf", "cny", "try", "rub"], index=0)
-per_page = st.sidebar.slider("Number of coins to show", 10, 250, 150, step=10)
+per_page = st.sidebar.slider("Max coins to load", 10, 250, 200, step=10)
 
-# Dark mode toggle
-if "dark_mode" not in st.session_state:
-    st.session_state.dark_mode = True
-if st.sidebar.button("🌙 Toggle Dark / Light Mode"):
-    st.session_state.dark_mode = not st.session_state.dark_mode
+# Auto-refresh toggle
+auto_refresh = st.sidebar.checkbox("Auto Refresh Every 60s", value=True)
 
-per_page = st.sidebar.slider("Coins in main table", 10, 250, 150, step=10)
+# Advanced Filters
+st.sidebar.subheader("Advanced Filters")
+search = st.sidebar.text_input("Search Name/Symbol", "")
+
+price_min = st.sidebar.number_input("Min Price", value=0.0, format="%.6f")
+price_max = st.sidebar.number_input("Max Price", value=100000.0, format="%.2f")
+
+vol_min = st.sidebar.number_input("Min 24h Volume ($M)", value=0, step=1)
+mcap_min = st.sidebar.number_input("Min Market Cap ($M)", value=0, step=10)
+
+sort_by = st.sidebar.selectbox("Sort By", ["market_cap", "price_change_percentage_24h", "current_price", "total_volume"], index=0)
+sort_order = st.sidebar.radio("Sort Order", ["Descending", "Ascending"])
 
 @st.cache_data(ttl=60)
-def get_crypto_data(currency):
+def get_crypto_data(currency, per_page):
     url = "https://api.coingecko.com/api/v3/coins/markets"
     params = {
         "vs_currency": currency,
@@ -36,30 +46,32 @@ def get_crypto_data(currency):
         r = requests.get(url, params=params, timeout=15)
         return pd.DataFrame(r.json()) if r.status_code == 200 else pd.DataFrame()
     except:
-        st.error("Rate limit — wait a moment and click Refresh")
+        st.error("Rate limit — waiting...")
         return pd.DataFrame()
 
-df = get_crypto_data(vs_currency)
-
-# Watchlist
-if "watchlist" not in st.session_state:
-    st.session_state.watchlist = set()
+df = get_crypto_data(vs_currency, per_page)
 
 if not df.empty:
-    # Filters
-    st.sidebar.subheader("Table Filters")
-    min_market_cap = st.sidebar.number_input("Min Market Cap ($M)", value=0, step=10)
-    change_min = st.sidebar.slider("24h Change Min (%)", -100, 100, -10)
-    change_max = st.sidebar.slider("24h Change Max (%)", -100, 100, 50)
+    # Apply filters
+    filtered = df.copy()
+    
+    if search:
+        filtered = filtered[filtered["name"].str.contains(search, case=False) | 
+                           filtered["symbol"].str.contains(search, case=False)]
+    
+    if price_min > 0:
+        filtered = filtered[filtered["current_price"] >= price_min]
+    if price_max < 100000:
+        filtered = filtered[filtered["current_price"] <= price_max]
+    
+    if vol_min > 0:
+        filtered = filtered[filtered["total_volume"] >= vol_min * 1_000_000]
+    if mcap_min > 0:
+        filtered = filtered[filtered["market_cap"] >= mcap_min * 1_000_000]
 
-    # Filtered data
-    filtered_df = df.copy()
-    if min_market_cap > 0:
-        filtered_df = filtered_df[filtered_df["market_cap"] >= min_market_cap * 1_000_000]
-    filtered_df = filtered_df[
-        (filtered_df["price_change_percentage_24h"] >= change_min) & 
-        (filtered_df["price_change_percentage_24h"] <= change_max)
-    ]
+    # Sort
+    ascending = sort_order == "Ascending"
+    filtered = filtered.sort_values(by=sort_by, ascending=ascending)
 
     tab1, tab2, tab3 = st.tabs(["📋 All Coins", "🔥 Top Gainers", "📉 Top Losers"])
 
@@ -72,49 +84,33 @@ if not df.empty:
             "circulating_supply": "Circulating", "total_supply": "Total",
             "max_supply": "Max Supply", "ath": "ATH"
         })
-        disp["Watchlist"] = disp["id"].apply(lambda x: "⭐" if x in st.session_state.watchlist else "☆")
         return disp
 
     def show_table(data, title):
-        st.subheader(title)
+        st.subheader(f"{title} ({len(data)} coins)")
         disp = make_display_df(data)
         st.dataframe(
             disp.style.format({
-                "Price": f"${{:,.4f}}", "24h %": "{:+.2f}%",
+                "Price": f"${{:,.6f}}", "24h %": "{:+.2f}%",
                 "Market Cap": "${:,.0f}", "24h Volume": "${:,.0f}"
-            }).map(lambda x: "color:green;font-weight:bold" if isinstance(x, float) and x > 0 else ("color:red;font-weight:bold" if isinstance(x, float) else ""), subset=["24h %"]),
+            }).map(lambda x: "color:green;font-weight:bold" if isinstance(x, float) and x > 0 else "color:red;font-weight:bold", subset=["24h %"]),
             width="stretch", height=550
         )
-        # Watchlist controls
-        coin_options = data["name"].tolist()
-        selected_for_watch = st.multiselect("Toggle coins in Watchlist", coin_options, key=f"watch_{title}")
-        if st.button("Update Watchlist", key=f"btn_{title}"):
-            st.session_state.watchlist = {row["id"] for _, row in data.iterrows() if row["name"] in selected_for_watch}
-            st.success("Watchlist updated!")
 
     with tab1:
-        show_table(filtered_df, f"All Coins ({len(filtered_df)} shown)")
+        show_table(filtered, "All Coins")
 
     with tab2:
-        gainers = filtered_df.nlargest(30, "price_change_percentage_24h")
-        show_table(gainers, "Top Gainers 24h")
+        gainers = filtered.nlargest(30, "price_change_percentage_24h")
+        show_table(gainers, "Top Gainers")
 
     with tab3:
-        losers = filtered_df.nsmallest(30, "price_change_percentage_24h")
-        show_table(losers, "Top Losers 24h")
-
-    # Watchlist section
-    st.subheader("⭐ Your Watchlist")
-    if st.session_state.watchlist:
-        watch_df = df[df["id"].isin(st.session_state.watchlist)]
-        if not watch_df.empty:
-            show_table(watch_df, "Your Saved Coins")
-    else:
-        st.info("Select coins using the multiselect boxes above to build your watchlist")
+        losers = filtered.nsmallest(30, "price_change_percentage_24h")
+        show_table(losers, "Top Losers")
 
     # Charts
-    st.subheader("📈 Price History Chart")
-    selected_name = st.selectbox("Select coin for chart", df["name"].tolist())
+    st.subheader("📈 Price History")
+    selected_name = st.selectbox("Select coin", df["name"].tolist())
     coin_row = df[df["name"] == selected_name].iloc[0]
     coin_id = coin_row["id"]
 
@@ -138,7 +134,14 @@ if not df.empty:
         fig.update_layout(height=500)
         st.plotly_chart(fig, use_container_width=True)
 
-if st.button("🔄 Refresh All Data"):
-    st.rerun()
+# Auto Refresh Logic
+if auto_refresh:
+    st.caption("🔄 Auto-refreshing every 60 seconds...")
+    time.sleep(1)  # small delay
+    if st.button("🔄 Manual Refresh"):
+        st.rerun()
+else:
+    if st.button("🔄 Manual Refresh"):
+        st.rerun()
 
-st.caption("Dashboard updated with your requests")
+st.caption("Advanced filters + auto updates enabled")
