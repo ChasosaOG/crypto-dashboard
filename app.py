@@ -6,7 +6,7 @@ import plotly.express as px
 st.set_page_config(page_title="Crypto Dashboard", layout="wide")
 
 st.title("🚀 Multi-Exchange Crypto Dashboard")
-st.markdown("**Public Data from XT.com + MEXC + BitMEX** | No Private Keys Needed")
+st.markdown("**Public Data from XT.com + MEXC + BitMEX** | No API Keys Needed")
 
 # Sidebar
 with st.sidebar:
@@ -26,7 +26,7 @@ def get_xt_public():
             df = df.rename(columns={"last": "Price", "change": "24h %"})
             df["Price"] = pd.to_numeric(df["Price"], errors='coerce')
             df["24h %"] = pd.to_numeric(df["24h %"], errors='coerce') * 100
-            return df[["name", "Price", "24h %"]].head(200)
+            return df[["name", "Price", "24h %"]].head(200).dropna()
     except:
         return pd.DataFrame()
 
@@ -41,7 +41,7 @@ def get_mexc_public():
             df = df.rename(columns={"lastPrice": "Price", "priceChangePercent": "24h %"})
             df["Price"] = pd.to_numeric(df["Price"], errors='coerce')
             df["24h %"] = pd.to_numeric(df["24h %"], errors='coerce')
-            return df[["name", "Price", "24h %"]].head(200)
+            return df[["name", "Price", "24h %"]].head(200).dropna()
     except:
         return pd.DataFrame()
 
@@ -51,14 +51,15 @@ def get_bitmex_public():
         r = requests.get("https://www.bitmex.com/api/v1/instrument", timeout=15)
         if r.status_code == 200:
             df = pd.DataFrame(r.json())
-            df = df[df["quoteCurrency"] == "USD"]
+            df = df[df.get("quoteCurrency") == "USD"]
             df = df.rename(columns={"symbol": "name", "lastPrice": "Price", "lastChangePcnt": "24h %"})
             df["Price"] = pd.to_numeric(df["Price"], errors='coerce')
             df["24h %"] = pd.to_numeric(df["24h %"], errors='coerce') * 100
-            return df[["name", "Price", "24h %"]].head(100)
+            return df[["name", "Price", "24h %"]].head(100).dropna()
     except:
         return pd.DataFrame()
 
+# Get data
 if exchange == "XT.com":
     df = get_xt_public()
 elif exchange == "MEXC":
@@ -66,8 +67,10 @@ elif exchange == "MEXC":
 else:
     df = get_bitmex_public()
 
-if df.empty:
-    st.error("Failed to load data. Click Manual Refresh.")
+# Safety check
+if df is None or df.empty:
+    st.error("❌ Failed to load data from this exchange. Please try another exchange or click Manual Refresh.")
+    df = pd.DataFrame()  # prevent further errors
 else:
     df = df.sort_values("Price", ascending=False).reset_index(drop=True)
     df.insert(0, "Rank", range(1, len(df) + 1))
@@ -90,11 +93,11 @@ else:
         show_table(df.nsmallest(30, "24h %"), "Top Losers")
 
     # Chart
-    st.subheader("📈 Price History (Public Data)")
+    st.subheader("📈 Price History")
     selected = st.selectbox("Select Coin", df["name"].tolist(), index=0)
-    st.info(f"📊 Showing data from {exchange}. Full historical charts for selected coin coming next.")
+    st.info(f"Selected: {selected} from {exchange} — Full chart support coming soon.")
 
 if auto_refresh:
-    st.caption("🔄 Auto-refreshing...")
+    st.caption("🔄 Auto-refreshing every 60 seconds...")
 if st.button("🔄 Manual Refresh"):
     st.rerun()
