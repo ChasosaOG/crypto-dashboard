@@ -2,10 +2,11 @@ import streamlit as st
 import pandas as pd
 import requests
 import plotly.express as px
+import time
 
 st.set_page_config(page_title="Crypto Dashboard", layout="wide", initial_sidebar_state="expanded")
 
-# Reliable currencies + symbols
+# Currency symbols
 currency_symbols = {
     "usd": "$", "eur": "€", "gbp": "£", "jpy": "¥", "inr": "₹",
     "brl": "R$", "aud": "A$", "cad": "C$", "chf": "CHF", "cny": "¥",
@@ -38,7 +39,7 @@ with st.sidebar:
         sort_by = st.selectbox("Sort By", ["market_cap", "price_change_percentage_24h", "current_price", "total_volume"], index=0)
         sort_order = st.radio("Order", ["Descending", "Ascending"])
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=45)
 def get_crypto_data(currency, per_page):
     url = "https://api.coingecko.com/api/v3/coins/markets"
     params = {
@@ -49,35 +50,35 @@ def get_crypto_data(currency, per_page):
         "sparkline": False,
         "price_change_percentage": "24h"
     }
-    try:
-        r = requests.get(url, params=params, timeout=20)
-        if r.status_code == 200:
-            return pd.DataFrame(r.json())
-        else:
-            st.error(f"API error for {currency.upper()}. Try another currency.")
-            return pd.DataFrame()
-    except Exception as e:
-        st.error(f"Connection issue. Please refresh.")
-        return pd.DataFrame()
+    for attempt in range(3):  # Retry up to 3 times
+        try:
+            r = requests.get(url, params=params, timeout=20)
+            if r.status_code == 200:
+                return pd.DataFrame(r.json())
+            elif r.status_code == 429:
+                st.warning(f"Rate limit hit. Waiting {2**attempt} seconds...")
+                time.sleep(2**attempt)
+            else:
+                st.error(f"API error ({r.status_code}). Retrying...")
+        except:
+            st.error("Connection issue. Retrying...")
+        time.sleep(1)
+    st.error(f"Could not load data for {currency.upper()}. Please try again or switch currency.")
+    return pd.DataFrame()
 
 df = get_crypto_data(vs_currency, per_page)
 
 if df.empty:
-    st.warning("⚠️ No data received for this currency. Please try USD, EUR or GBP.")
+    st.warning("⚠️ No data loaded. Try clicking Manual Refresh or switch to another currency.")
 else:
-    # Filtering
+    # Filtering & Sorting
     filtered = df.copy()
     if search:
-        filtered = filtered[filtered["name"].str.contains(search, case=False) | 
-                           filtered["symbol"].str.contains(search, case=False)]
-    if price_min > 0:
-        filtered = filtered[filtered["current_price"] >= price_min]
-    if price_max < 1000000:
-        filtered = filtered[filtered["current_price"] <= price_max]
-    if vol_min > 0:
-        filtered = filtered[filtered["total_volume"] >= vol_min * 1_000_000]
-    if mcap_min > 0:
-        filtered = filtered[filtered["market_cap"] >= mcap_min * 1_000_000]
+        filtered = filtered[filtered["name"].str.contains(search, case=False) | filtered["symbol"].str.contains(search, case=False)]
+    if price_min > 0: filtered = filtered[filtered["current_price"] >= price_min]
+    if price_max < 1000000: filtered = filtered[filtered["current_price"] <= price_max]
+    if vol_min > 0: filtered = filtered[filtered["total_volume"] >= vol_min * 1_000_000]
+    if mcap_min > 0: filtered = filtered[filtered["market_cap"] >= mcap_min * 1_000_000]
 
     ascending = sort_order == "Ascending"
     filtered = filtered.sort_values(by=sort_by, ascending=ascending).reset_index(drop=True)
@@ -111,7 +112,7 @@ else:
     with tab3:
         show_table(filtered.nsmallest(30, "price_change_percentage_24h"), "Top Losers")
 
-    # Chart Section
+    # Chart
     st.subheader("📈 Price History")
     col1, col2 = st.columns([3, 1])
     with col1:
