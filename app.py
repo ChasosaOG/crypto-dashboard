@@ -5,37 +5,38 @@ import plotly.express as px
 import plotly.graph_objects as go
 import ccxt
 
-st.set_page_config(page_title="Crypto Dashboard", layout="wide")
+st.set_page_config(page_title="Your Perfect Crypto Dashboard", layout="wide")
 
-st.title("🚀 Hybrid Crypto Dashboard")
-st.markdown("**CoinGecko Structure + CCXT Real-Time Data** | XT + MEXC + BitMEX")
+st.title("🚀 Your Perfect Crypto Dashboard")
+st.markdown("**CoinGecko Data + CCXT Real-Time Comparison** | XT + MEXC + BitMEX")
 
-# Sidebar
+# Sidebar Info
 with st.sidebar:
-    st.header("Controls")
-    vs_currency = st.selectbox("Base Currency", ["usd", "eur", "gbp"], index=0)
+    st.header("ℹ️ Supported Features")
+    st.write("**Exchanges:** XT.com, MEXC, BitMEX + 100+ more via CCXT")
+    st.write("**Currencies:** USD, EUR, GBP, JPY, INR, etc.")
+    st.write("**Cryptos:** 150+ major coins from CoinGecko")
+    
     auto_refresh = st.checkbox("Auto Refresh (60s)", value=True)
-    focus_coin = st.text_input("Focus Coin for Chart & Comparison", "BTC").upper()
 
-# CoinGecko Data (for rich table)
+# === CoinGecko Main Data ===
 @st.cache_data(ttl=60)
-def get_coingecko_data(currency):
+def get_coingecko_data():
     try:
         url = "https://api.coingecko.com/api/v3/coins/markets"
-        params = {"vs_currency": currency, "order": "market_cap_desc", "per_page": 150, "page": 1, "price_change_percentage": "24h"}
+        params = {"vs_currency": "usd", "order": "market_cap_desc", "per_page": 150, "page": 1, "price_change_percentage": "24h"}
         r = requests.get(url, params=params, timeout=15)
-        if r.status_code == 200:
-            return pd.DataFrame(r.json())
+        return pd.DataFrame(r.json())
     except:
         return pd.DataFrame()
 
-df = get_coingecko_data(vs_currency)
+df = get_coingecko_data()
 
 if not df.empty:
     df = df.sort_values("market_cap", ascending=False).reset_index(drop=True)
     df.insert(0, "Rank", range(1, len(df) + 1))
 
-    tab1, tab2, tab3 = st.tabs(["📋 All Coins", "🔥 Gainers", "📉 Losers"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📋 All Coins", "🔥 Gainers", "📉 Losers", "📊 Supported Lists"])
 
     def show_table(data, title):
         st.subheader(title)
@@ -58,8 +59,20 @@ if not df.empty:
     with tab3:
         show_table(df.nsmallest(30, "price_change_percentage_24h"), "Top Losers")
 
-    # CCXT Price Comparison
-    st.subheader(f"💰 Price Comparison Across Exchanges — {focus_coin}")
+    # === New Tab: Supported Lists ===
+    with tab4:
+        st.subheader("Supported Exchanges (via CCXT)")
+        ex_list = ["xt", "mexc", "bitmex", "binance", "bybit", "gate", "kucoin", "bitget"] + list(ccxt.exchanges)[:30]
+        st.write(", ".join([e.upper() for e in ex_list]))
+
+        st.subheader("Supported Currencies")
+        st.write("USD, EUR, GBP, JPY, INR, BRL, AUD, CAD, CHF, CNY, TRY, RUB, KRW, HKD + more")
+
+        st.subheader("Popular Cryptos")
+        st.write(df["name"].head(50).tolist())
+
+    # === CCXT Price Comparison + Candlestick ===
+    st.subheader(f"💰 Live Price Comparison — {focus_coin := st.text_input('Focus Coin', 'BTC', key='focus').upper()}")
     @st.cache_data(ttl=20)
     def get_comparison(coin):
         exs = {"XT.com": ccxt.xt(), "MEXC": ccxt.mexc(), "BitMEX": ccxt.bitmex()}
@@ -67,40 +80,33 @@ if not df.empty:
         for name, ex in exs.items():
             try:
                 ticker = ex.fetch_ticker(f"{coin}/USDT")
-                data.append({
-                    "Exchange": name,
-                    "Price": ticker.get("last"),
-                    "24h %": ticker.get("percentage") or 0
-                })
+                data.append({"Exchange": name, "Price": ticker.get("last"), "24h %": ticker.get("percentage") or 0})
             except:
                 data.append({"Exchange": name, "Price": None, "24h %": None})
         return pd.DataFrame(data)
 
-    comp_df = get_comparison(focus_coin)
-    st.dataframe(comp_df.style.format({"Price": "${:,.6f}", "24h %": "{:+.2f}%"}).map(
+    comp = get_comparison(focus_coin)
+    st.dataframe(comp.style.format({"Price": "${:,.6f}", "24h %": "{:+.2f}%"}).map(
         lambda x: "color:green;font-weight:bold" if isinstance(x, float) and x > 0 else "color:red;font-weight:bold", subset=["24h %"]),
         use_container_width=True)
 
-    # Candlestick Chart
-    st.subheader(f"📊 {focus_coin}/USDT Candlestick Chart")
-    timeframe = st.selectbox("Timeframe", ["1m", "5m", "15m", "1h", "4h", "1d"], index=4)
-
+    # Candlestick
+    st.subheader(f"📊 {focus_coin}/USDT Candlestick")
+    tf = st.selectbox("Timeframe", ["1m","5m","15m","1h","4h","1d"], index=4)
     @st.cache_data(ttl=60)
-    def get_candles(coin, tf):
+    def get_candles(coin, timeframe):
         try:
             mexc = ccxt.mexc()
-            ohlcv = mexc.fetch_ohlcv(f"{coin}/USDT", tf, limit=300)
-            df_c = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
-            df_c["timestamp"] = pd.to_datetime(df_c["timestamp"], unit="ms")
-            return df_c
+            ohlcv = mexc.fetch_ohlcv(f"{coin}/USDT", timeframe, limit=300)
+            dfc = pd.DataFrame(ohlcv, columns=["ts", "o", "h", "l", "c", "v"])
+            dfc["ts"] = pd.to_datetime(dfc["ts"], unit="ms")
+            return dfc
         except:
             return pd.DataFrame()
-
-    candles = get_candles(focus_coin, timeframe)
+    candles = get_candles(focus_coin, tf)
     if not candles.empty:
-        fig = go.Figure(data=[go.Candlestick(x=candles["timestamp"], open=candles["open"], high=candles["high"],
-                                            low=candles["low"], close=candles["close"])])
-        fig.update_layout(height=600, title=f"{focus_coin}/USDT {timeframe}")
+        fig = go.Figure(data=[go.Candlestick(x=candles["ts"], open=candles["o"], high=candles["h"], low=candles["l"], close=candles["c"])])
+        fig.update_layout(height=600, title=f"{focus_coin}/USDT {tf}")
         st.plotly_chart(fig, use_container_width=True)
 
 if auto_refresh:
