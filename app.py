@@ -5,24 +5,26 @@ import plotly.express as px
 
 st.set_page_config(page_title="Crypto Dashboard", layout="wide", initial_sidebar_state="expanded")
 
-# Custom styling
-st.markdown("""
-<style>
-    .main {padding-top: 2rem;}
-    .stDataFrame {height: 520px;}
-    .metric-card {background-color: #f8f9fa; padding: 1rem; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);}
-    .positive {color: #00cc00; font-weight: bold;}
-    .negative {color: #ff4444; font-weight: bold;}
-</style>
-""", unsafe_allow_html=True)
+# Currency symbols mapping
+currency_symbols = {
+    "usd": "$", "eur": "€", "gbp": "£", "jpy": "¥", "inr": "₹",
+    "brl": "R$", "aud": "A$", "cad": "C$", "chf": "CHF", "cny": "¥",
+    "try": "₺", "rub": "₽", "krw": "₩", "hkd": "HK$", "sgd": "S$",
+    "mxn": "MX$", "zar": "R", "sek": "kr", "nok": "kr", "dkk": "kr"
+}
 
 st.title("🚀 Crypto Market Dashboard")
 st.markdown("**Real-time Prices • Supplies • Charts • Trader Tools** | CoinGecko")
 
-# Sidebar - Organized & Clean
+# Sidebar
 with st.sidebar:
     st.header("🔧 Controls")
-    vs_currency = st.selectbox("Currency", ["usd", "eur", "gbp", "jpy", "inr", "brl", "aud", "cad", "chf", "cny", "try", "rub"], index=0)
+    vs_currency = st.selectbox("Currency", 
+        ["usd", "eur", "gbp", "jpy", "inr", "brl", "aud", "cad", "chf", "cny", 
+         "try", "rub", "krw", "hkd", "sgd", "mxn", "zar", "sek", "nok", "dkk"], 
+        index=0)
+    symbol = currency_symbols.get(vs_currency, vs_currency.upper())
+    
     per_page = st.slider("Coins to Load", 10, 250, 150, step=10)
     auto_refresh = st.checkbox("Auto Refresh (60s)", value=True)
 
@@ -43,7 +45,14 @@ with st.sidebar:
 @st.cache_data(ttl=60)
 def get_crypto_data(currency, per_page):
     url = "https://api.coingecko.com/api/v3/coins/markets"
-    params = {"vs_currency": currency, "order": "market_cap_desc", "per_page": per_page, "page": 1, "sparkline": False, "price_change_percentage": "24h"}
+    params = {
+        "vs_currency": currency,
+        "order": "market_cap_desc",
+        "per_page": per_page,
+        "page": 1,
+        "sparkline": False,
+        "price_change_percentage": "24h"
+    }
     try:
         r = requests.get(url, params=params, timeout=15)
         return pd.DataFrame(r.json()) if r.status_code == 200 else pd.DataFrame()
@@ -54,7 +63,6 @@ def get_crypto_data(currency, per_page):
 df = get_crypto_data(vs_currency, per_page)
 
 if not df.empty:
-    # Filtering & Sorting
     filtered = df.copy()
     if search:
         filtered = filtered[filtered["name"].str.contains(search, case=False) | filtered["symbol"].str.contains(search, case=False)]
@@ -67,7 +75,7 @@ if not df.empty:
     filtered = filtered.sort_values(by=sort_by, ascending=ascending).reset_index(drop=True)
     filtered.insert(0, "Rank", range(1, len(filtered) + 1))
 
-    tab1, tab2, tab3, tab4 = st.tabs(["📋 Market Overview", "🔥 Gainers", "📉 Losers", "⭐ Watchlist"])
+    tab1, tab2, tab3 = st.tabs(["📋 Market Overview", "🔥 Gainers", "📉 Losers"])
 
     def show_table(data, title):
         st.subheader(title)
@@ -79,21 +87,23 @@ if not df.empty:
             "circulating_supply": "Circulating", "max_supply": "Max Supply"
         })
         st.dataframe(
-            disp.style.format({"Price": "${:,.6f}", "24h %": "{:+.2f}%", "Market Cap": "${:,.0f}", "24h Volume": "${:,.0f}"})
-            .map(lambda x: "color:#00cc00;font-weight:bold" if isinstance(x, float) and x > 0 else "color:#ff4444;font-weight:bold", subset=["24h %"]),
+            disp.style.format({
+                "Price": f"{symbol}{{:,.6f}}", 
+                "24h %": "{:+.2f}%",
+                "Market Cap": f"{symbol}{{:,.0f}}", 
+                "24h Volume": f"{symbol}{{:,.0f}}"
+            }).map(lambda x: "color:#00cc00;font-weight:bold" if isinstance(x, float) and x > 0 else "color:#ff4444;font-weight:bold", subset=["24h %"]),
             use_container_width=True, height=480
         )
 
     with tab1:
         show_table(filtered, "All Coins")
-
     with tab2:
         show_table(filtered.nlargest(30, "price_change_percentage_24h"), "Top Gainers")
-
     with tab3:
         show_table(filtered.nsmallest(30, "price_change_percentage_24h"), "Top Losers")
 
-    # Improved Chart Section
+    # Chart
     st.subheader("📈 Price History")
     col1, col2 = st.columns([3, 1])
     with col1:
@@ -119,11 +129,10 @@ if not df.empty:
 
     hist = get_history(coin_id, timeframe, vs_currency)
     if not hist.empty:
-        fig = px.line(hist, x="timestamp", y="price", title=f"{selected_name} — {timeframe_label}")
+        fig = px.line(hist, x="timestamp", y="price", title=f"{selected_name} — {timeframe_label} ({symbol})")
         fig.update_layout(height=520)
         st.plotly_chart(fig, use_container_width=True)
 
-# Refresh
 if auto_refresh:
     st.caption("🔄 Auto-refreshing every 60 seconds...")
 if st.button("🔄 Manual Refresh"):
