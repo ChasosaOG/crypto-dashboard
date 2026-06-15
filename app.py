@@ -2,34 +2,30 @@ import streamlit as st
 import pandas as pd
 import requests
 import plotly.express as px
-from datetime import datetime
 
 st.set_page_config(page_title="Your Crypto Dashboard", layout="wide")
 
-# Dark mode toggle
-if "dark_mode" not in st.session_state:
-    st.session_state.dark_mode = True
-
-def toggle_dark_mode():
-    st.session_state.dark_mode = not st.session_state.dark_mode
-
-# XT3020 Promo Banner
+# XT3020 Banner
 st.markdown("""
 <div style="background: linear-gradient(90deg, #1e3a8a, #3b82f6); color: white; padding: 18px; border-radius: 12px; text-align: center; margin-bottom: 20px;">
-    <h2>🚀 Trade Smart on XT.com — Code <strong>XT3020</strong></h2>
-    <p><strong>50% Cashback on my commissions for first 30 days!</strong> Transparent via official XT dashboard.<br>
+    <h2>🚀 Trade on XT.com — Code <strong>XT3020</strong></h2>
+    <p><strong>50% Cashback on my commissions for first 30 days!</strong> Transparent via official dashboard.<br>
     <a href="https://www.xt.com/en/register?ref=XT3020" target="_blank" style="color:#ffd700; font-weight:bold;">Register Now with XT3020 →</a></p>
 </div>
 """, unsafe_allow_html=True)
 
 st.title("🚀 Your Personal Crypto Info Dashboard")
-st.markdown("**Prices • Supplies • Charts • Trader Tools** | Powered by CoinGecko")
+st.markdown("**Prices • Supplies • Charts • Trader Tools** | CoinGecko")
 
+# Controls
 col1, col2 = st.columns([4, 1])
 with col1:
     vs_currency = st.selectbox("Currency", ["usd", "eur", "gbp", "jpy", "inr", "brl", "aud", "cad", "chf", "cny", "try", "rub"], index=0)
 with col2:
-    st.button("🌙 Dark Mode" if st.session_state.dark_mode else "☀️ Light Mode", on_click=toggle_dark_mode)
+    if st.button("🌙 Toggle Dark/Light"):
+        if "theme" not in st.session_state:
+            st.session_state.theme = "light"
+        st.session_state.theme = "dark" if st.session_state.theme == "light" else "light"
 
 per_page = st.slider("Coins to show", 10, 250, 150, step=10)
 
@@ -37,114 +33,107 @@ per_page = st.slider("Coins to show", 10, 250, 150, step=10)
 def get_crypto_data(currency):
     url = "https://api.coingecko.com/api/v3/coins/markets"
     params = {
-        "vs_currency": currency,
-        "order": "market_cap_desc",
-        "per_page": per_page,
-        "page": 1,
-        "sparkline": False,
-        "price_change_percentage": "24h"
+        "vs_currency": currency, "order": "market_cap_desc",
+        "per_page": per_page, "page": 1, "sparkline": False, "price_change_percentage": "24h"
     }
     try:
         r = requests.get(url, params=params, timeout=15)
         return pd.DataFrame(r.json()) if r.status_code == 200 else pd.DataFrame()
     except:
-        st.error("Rate limit — wait and refresh")
+        st.error("Rate limit — click Refresh")
         return pd.DataFrame()
 
 df = get_crypto_data(vs_currency)
 
-# Watchlist
+# Watchlist (persistent during session)
 if "watchlist" not in st.session_state:
-    st.session_state.watchlist = []
-
-def toggle_watchlist(coin_id, name):
-    if coin_id in st.session_state.watchlist:
-        st.session_state.watchlist.remove(coin_id)
-    else:
-        st.session_state.watchlist.append(coin_id)
+    st.session_state.watchlist = set()
 
 if not df.empty:
     tab1, tab2, tab3 = st.tabs(["📋 All Coins", "🔥 Top Gainers", "📉 Top Losers"])
 
-    # Helper for table
-    def display_table(data):
-        df_display = data.copy()
-        df_display = df_display.rename(columns={
+    def make_display_df(data):
+        disp = data[["id", "name", "symbol", "current_price", "price_change_percentage_24h",
+                     "market_cap", "total_volume", "circulating_supply", "total_supply", "max_supply", "ath"]].copy()
+        disp = disp.rename(columns={
             "current_price": "Price", "price_change_percentage_24h": "24h %",
             "market_cap": "Market Cap", "total_volume": "24h Volume",
             "circulating_supply": "Circulating", "total_supply": "Total",
             "max_supply": "Max Supply", "ath": "ATH"
         })
-        
-        # Add star column
-        df_display["⭐"] = df_display["id"].apply(
-            lambda x: "★" if x in st.session_state.watchlist else "☆"
-        )
-        
+        disp["In Watchlist"] = disp["id"].apply(lambda x: "⭐" if x in st.session_state.watchlist else "☆")
+        return disp
+
+    def show_table(data):
+        disp = make_display_df(data)
         st.dataframe(
-            df_display[["⭐", "name", "symbol", "Price", "24h %", "Market Cap", "24h Volume", "Circulating", "Total", "Max Supply", "ATH"]].style.format({
-                "Price": f"${{:,.4f}}", "24h %": "{:+.2f}%", "Market Cap": "${:,.0f}",
-                "24h Volume": "${:,.0f}"
-            }).map(lambda v: "color: green; font-weight: bold" if isinstance(v, float) and v > 0 else "color: red; font-weight: bold", subset=["24h %"]),
-            width="stretch", height=650,
-            on_click=lambda row: toggle_watchlist(row["id"], row["name"])  # simplified
+            disp.style.format({
+                "Price": f"${{:,.4f}}", "24h %": "{:+.2f}%",
+                "Market Cap": "${:,.0f}", "24h Volume": "${:,.0f}"
+            }).map(lambda x: "color:green;font-weight:bold" if isinstance(x, float) and x > 0 else "color:red;font-weight:bold", subset=["24h %"]),
+            width="stretch", height=600
         )
+        # Watchlist management
+        st.subheader("Add/Remove from Watchlist")
+        selected_coins = st.multiselect("Select coins to toggle in watchlist", 
+                                      options=data["name"].tolist(), 
+                                      default=[row["name"] for _, row in data.iterrows() if row["id"] in st.session_state.watchlist][:10])
+        if st.button("Update Watchlist"):
+            st.session_state.watchlist = {row["id"] for _, row in data.iterrows() if row["name"] in selected_coins}
+            st.success("Watchlist updated!")
 
     with tab1:
         st.subheader(f"All Coins ({vs_currency.upper()})")
-        search = st.text_input("🔍 Search", key="all_search")
+        search = st.text_input("🔍 Search", key="search_all")
         filtered = df
         if search:
             filtered = df[df["name"].str.contains(search, case=False) | df["symbol"].str.contains(search, case=False)]
-        display_table(filtered)
+        show_table(filtered)
 
     with tab2:
-        st.subheader("🔥 Top Gainers (24h)")
-        gainers = df.nlargest(30, "price_change_percentage_24h")
-        display_table(gainers)
+        st.subheader("🔥 Top Gainers 24h")
+        show_table(df.nlargest(30, "price_change_percentage_24h"))
 
     with tab3:
-        st.subheader("📉 Top Losers (24h)")
-        losers = df.nsmallest(30, "price_change_percentage_24h")
-        display_table(losers)
+        st.subheader("📉 Top Losers 24h")
+        show_table(df.nsmallest(30, "price_change_percentage_24h"))
 
-    # Watchlist Section
+    # Watchlist Tab Content
     st.subheader("⭐ Your Watchlist")
     if st.session_state.watchlist:
         watch_df = df[df["id"].isin(st.session_state.watchlist)]
         if not watch_df.empty:
-            display_table(watch_df)
+            show_table(watch_df)
     else:
-        st.info("Star coins in any tab to add them here")
+        st.info("Use the multiselect above to add coins to your watchlist")
 
-    # Charts Section
-    st.subheader("📈 Price History Chart")
-    selected_coin = st.selectbox("Select coin for chart", df["name"].tolist(), index=0)
-    coin_id = df[df["name"] == selected_coin]["id"].iloc[0]
-    coin_symbol = df[df["name"] == selected_coin]["symbol"].iloc[0].upper()
+    # Charts
+    st.subheader("📈 Price History")
+    selected_name = st.selectbox("Select coin", df["name"].tolist())
+    coin_data = df[df["name"] == selected_name].iloc[0]
+    coin_id = coin_data["id"]
 
     timeframe = st.selectbox("Timeframe", ["1", "7", "30", "90", "365", "max"], index=2)
 
     @st.cache_data(ttl=300)
-    def get_history(coin_id, days, currency):
+    def get_history(coin_id, days, vs_currency):
         url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
-        params = {"vs_currency": currency, "days": days, "interval": "daily" if days != "1" else "hourly"}
+        params = {"vs_currency": vs_currency, "days": days, "interval": "daily" if days != "1" else "hourly"}
         try:
             r = requests.get(url, params=params)
-            data = r.json()
-            prices = pd.DataFrame(data["prices"], columns=["timestamp", "price"])
-            prices["timestamp"] = pd.to_datetime(prices["timestamp"], unit='ms')
+            prices = pd.DataFrame(r.json()["prices"], columns=["timestamp", "price"])
+            prices["timestamp"] = pd.to_datetime(prices["timestamp"], unit="ms")
             return prices
         except:
             return pd.DataFrame()
 
-    history = get_history(coin_id, timeframe, vs_currency)
-    if not history.empty:
-        fig = px.line(history, x="timestamp", y="price", title=f"{selected_coin} ({coin_symbol}) - {timeframe} days")
-        fig.update_layout(height=500)
+    hist = get_history(coin_id, timeframe, vs_currency)
+    if not hist.empty:
+        fig = px.line(hist, x="timestamp", y="price", title=f"{selected_name} Price Chart")
+        fig.update_layout(height=550)
         st.plotly_chart(fig, use_container_width=True)
 
 if st.button("🔄 Refresh All Data"):
     st.rerun()
 
-st.caption("💡 Pro Tip: Share this dashboard with your XT3020 referrals!")
+st.caption("💡 Share this link with your XT3020 network!")
